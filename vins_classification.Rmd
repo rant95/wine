@@ -1,0 +1,577 @@
+---
+title: "Prédiction de la qualité d’un vin"
+subtitle: "RCP209 - S1 2019"
+author: "L.RANT"
+date: "8 Février 2019"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    theme: lumen
+    code_folding: hide
+---
+
+
+
+
+# Introduction
+
+L'objectif est de déterminer la qualité d’un vin (de 0 = très mauvais à 10 = exceptionnel) à partir de mesures physico-chimiques.
+
+Détails : *http://archive.ics.uci.edu/ml/datasets/Wine+Quality*
+
+On part du principe que si deux vins différents ont la même composition, leurs qualités gustatives seront identiques. Dans la base de données il y a 6 400 vins rouges et blancs provenant du Portugal. Si un vin inconnu a une composition identique à l’un des 6400 vins répertoriés, on peut supposer qu’il obtiendra la même note.
+
+Avec les algorithmes d'apprentissage utilisés en RCP209, je vais proposer une façon de construire une note pour une composition nouvelle. Je vais donc faire une prédiction et avec le savoir accumulé sur 6400 vins, je vais tenter de prédire ou estimer la note.
+
+Voici le jeu de données qui contient 6497 vins et 13 variables dont 1 variables quantitative illustrative et 1 variables qualitative illustrative.
+
+```{r setup, include=FALSE}
+library(reticulate)
+use_python("C:/Users/lnzb7292/AppData/Local/Programs/python, echo=TRUE, warning = FALSE/python, echo=TRUE, warning = FALSE37/Lib/site-packages")
+#reticulate::repl_python, echo=TRUE, warning = FALSE()
+options(Encoding="UTF-8")
+```
+
+
+
+```{python, echo=TRUE, warning = FALSE}
+#Importing required packages.
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+from sklearn.svm import SVC
+from sklearn.linear_model import SGDClassifier
+from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn import metrics
+import numpy as np
+import imp
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import normalize
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, accuracy_score
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, RandomizedSearchCV
+
+from scipy.stats import uniform
+from scipy.stats import norm
+import encodings
+
+
+```
+
+
+
+```{python, echo=TRUE, warning = FALSE}
+# import the dataset
+
+df_red = pd.read_csv('C:/Users/lnzb7292/Downloads/RCP209/projet/Projet Vins RCP209/winequality-red.csv', sep=';')
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+df_red.info()
+df_red.head(10)
+df_red.describe()
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+df_white = pd.read_csv('C:/Users/lnzb7292/Downloads/RCP209/projet/Projet Vins RCP209/winequality-white.csv', sep=';')
+df_white.info()
+df_white.head(10)
+df_white.describe()
+```
+
+
+
+```{python, echo=TRUE, warning = FALSE}
+df_white['color'] = "W"
+
+df_red['color'] = "R"
+df = pd.concat([df_red, df_white])
+df.head(10)
+df["color"].value_counts() 
+#vins2=pd.read_csv("C:/Users/lnzb7292/Downloads/RCP209/projet/Projet Vins RCP209/winequality.csv", sep=';')
+#vins2["color"].value_counts() 
+#df.to_csv('C:/Users/lnzb7292/Downloads/RCP209/projet/vinsqualityessai.csv',sep='\t', encoding='utf-8',index=False) #sep=';',mode = 'w', index=False)
+
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+wine = pd.read_csv('C:/Users/lnzb7292/Downloads/RCP209/projet/Projet Vins RCP209/vinsquality.csv', sep=';')
+wine.head(10)
+vins=df
+```
+
+
+```{python, echo=TRUE}
+print(vins.describe())
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+X = vins.drop(['quality','color'],axis=1)
+Y = vins['quality']
+
+
+vins["color"].value_counts()
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+print(len(vins[vins.color == 'W']), "vins Blanc")
+print(len(vins[vins.color == 'R']), "vins Rouge")
+```
+On dispose de plusieurs milliers de notes données par des experts à des milliers de vins dont on connaît les mêmes 12 informations sur leur composition, ci-dessous, pour deux vins.
+Comme nous avons beaucoup de vins du très bon aux très mauvais, nous allons vérifier si les notes sont distribuées de façon non uniforme.
+
+
+# Distribution des notes des vins
+
+```{python, echo=TRUE, warning = FALSE}
+import matplotlib.pyplot as plt
+plt.close('all')
+#plt.style.use('ggplot')
+fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10,4))
+vins.quality.hist(bins=18, ax=ax)
+plt.title('Distribution des notes des vins')
+plt.show()
+```
+Les vins avec une note de 3 et 9 sont peu représentés avec seulement 5-10 echantillions, ce qui risque de poser un peu de problème de sur apprentissage.
+
+Nous examiner les caractéristiques des variables et surtout les relations entre ces variables. Pour cela on utilise une méthode d”analyse factorielle pour mettre en évidence des relations entre les variables quantitatives (mesures physico-chimique) et la variable quantitative illustrative "quality".
+
+Nous allons lancer une analyse en composante principale (ACP) pour représenter un ensemble de points dans un espace de dimension.
+
+
+## Analyse en composante principale ACP
+```{python, echo=TRUE, warning = FALSE}
+pca = PCA(n_components=5)
+Xn = normalize(X)
+pca.fit(Xn)
+
+PCA(copy=True, iterated_power='auto', n_components=5, random_state=None,svd_solver='auto', tol=0.0, whiten=False)
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+
+eig = pd.DataFrame(dict(valeur=pca.explained_variance_ratio_))
+ax = eig.plot(kind='bar', figsize=(3,3))
+ax.set_title("Valeur propres de l'ACP apres normalisation");
+plt.show()
+```
+
+Nous avons les 2 premiers axes qui regroupent plus de 90% des informations.
+Regardons les coordonnées du premier v1 et deuxième v2 axe.
+
+```{python, echo=TRUE}
+v2 = pd.DataFrame(pca.components_[0:2,:]).T
+v2.index = vins.columns[:-2]
+v2.columns = ['v1', 'v2']
+```
+
+
+```{python, echo=TRUE}
+ax = v2.plot(y=['v1', 'v2'], kind='bar', figsize=(10,4))
+ax.legend(loc='upper left')
+ax.set_title("Comparaison des coordonnees des deux premiers axes de l ACP")
+
+
+plt.show()
+
+```
+
+
+
+
+
+On remarque que l’alcool, l’acidité, le dioxyde, le pH semble jouer un rôle plus grand que les autres variables
+
+
+```{python, echo=TRUE, warning = FALSE}
+proj = pca.transform(Xn)
+
+pl = pd.DataFrame(proj[:, :3])
+pl.columns = ['v1', 'v2', 'v3']
+```
+
+
+
+
+```{python, echo=TRUE, warning = FALSE}
+pl['quality'] = wine['quality']
+pl['color'] = wine['color']
+
+#Premier graphe selon les couleurs.
+
+ax = sns.lmplot(x="v1", y="v2", hue="color", truncate=True, data=pl, scatter_kws={"s": 1}, fit_reg=False, size=3)
+ax.ax.set_title("Projection des vins sur les deux premiers axes de l ACP");
+
+plt.show()
+```
+
+Avec l'ACP on remarque avec le grahe que les vins blancs et rouges pourraient être différents chimiquement et qu'il y a une frontière entre les vins. Il est donc possible de prédire la couleur en fonction des données disponibles dans ce jeu de données via une classification. Cependant ce n'est pas l'objectif de se projet.
+
+On représente maintenant les notes des vins.
+
+
+##Représentations des notes des vins.
+
+```{python, echo=TRUE, warning = FALSE}
+fig, axs = plt.subplots(1, 3, figsize=(12,4))
+red = pl[pl.color == 'R']
+white = pl[pl.color == 'W']
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+# Choisir un dégragé ici
+cmap = plt.get_cmap('plasma')
+cnorm = colors.Normalize(vmin=pl['quality'].min(), vmax=pl['quality'].max())
+scalar = cmx.ScalarMappable(norm=cnorm, cmap=cmap)
+
+for i, data, title in [(0, pl, 'tous'), (1, red, 'red'), (2, white, 'white')]:
+    ax = axs[i]
+    # On trace les points pour que le texte n'apparaissent pas en dehors des zones
+    pl.plot(x='v1', y='v2', kind='scatter', color="white", ax=ax)
+
+    for note in sorted(set(data['quality'])):
+        sub = data[data.quality == note]
+        if sub.shape[0] > 100:
+            sub = sub.sample(n=30)
+
+        color = scalar.to_rgba(note)
+        for i, row in enumerate(sub.itertuples()):
+            ax.text(row[1], row[2], str(row[4]), color=color)
+    ax.set_title(title);
+    
+    
+plt.show()  
+```
+
+
+
+
+Les vins rouges et blancs apparaissent comme très différents, cela vaudra sans doute le coup de faire deux modèles si la performance n’est pas assez bonne. Les bonnes notes ne se détache pas particulièremnt sur ces graphes. Le problème est peut-être simple mais ce ne sont pas ces graphes qui vont nous le dire.
+
+Nous allons voir plus en détails les relations entre les variables avec une analyse plus poussée de l'ACP via la programation sur R en annexe.
+
+
+Maintenant on va choisir quel algorithme est le plus précis pour prédire la note d'un vin. Nous allons tester 6 algorithmes pour avoir la meilleure prédiction possible.
+
+
+*1.Random Forests*
+
+*2.Logistic Regression*
+
+*3.Stochastic Gradient Decent Classifier*
+
+*4.Decision Trees*
+
+*5.SVM*
+
+*6.Plus proche voisins knn*
+
+
+
+
+Voici les algorithmes que nous allons tester avec des hyperparametres par défaut.
+
+## Les modèles d'algorithmes
+
+
+## Découpage des jeux de données training et Testing
+
+```{python, echo=TRUE, warning = FALSE}
+
+#Now seperate the dataset as response variable and feature variabes
+X = vins.drop(['quality','color'], axis = 1)
+y = vins['quality']
+
+#Train and Test splitting of data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 42)
+#Applying Standard scaling to get optimized result
+sc = StandardScaler()
+
+X_train = sc.fit_transform(X_train)
+X_test = sc.fit_transform(X_test)
+```
+
+Nous allons d'abord diviser les données en deux. 80% de des données iront dans la partie training pour entrainer le modèle et les 20% restants des données iront dans la partie test pour la validation  du modèle.
+
+### 1.Random Forest Classifier
+```{python, echo=TRUE, warning = FALSE}
+rfc = RandomForestClassifier()
+rfc.fit(X_train, y_train)
+pred_rfc = rfc.predict(X_test)
+
+#Let's see how our model performed
+print(classification_report(y_test, pred_rfc))
+print ("Overall Accuracy:", round(metrics.accuracy_score(y_test, pred_rfc), 3))
+rfc_defaut=round(metrics.accuracy_score(y_test, pred_rfc), 3)
+```
+
+
+
+
+### 2.Logistic Regression
+
+```{python, echo=TRUE, warning = FALSE}
+
+
+
+lr = LogisticRegression()
+lr.fit(X_train, y_train)
+pred_lr = lr.predict(X_test)
+#Let's see how our model performed
+print(classification_report(y_test, pred_lr))
+print ("Overall Accuracy:", round(metrics.accuracy_score(y_test, pred_lr), 3))
+
+```
+
+### 3.Stochastic Gradient Decent Classifier
+
+```{python, echo=TRUE, warning = FALSE}
+sgd = SGDClassifier(penalty=None)
+sgd.fit(X_train, y_train)
+pred_sgd = sgd.predict(X_test)
+print(classification_report(y_test, pred_sgd))
+print ("Overall Accuracy:", round(metrics.accuracy_score(y_test, pred_sgd), 3))
+```
+
+4.Decision Trees
+
+```{python, echo=TRUE, warning = FALSE}
+from sklearn.tree import DecisionTreeClassifier
+dt = DecisionTreeClassifier()
+dt.fit(X_train,y_train)
+pred_dt = dt.predict(X_test)
+print(classification_report(y_test, pred_dt))
+print ("Overall Accuracy:", round(metrics.accuracy_score(y_test, pred_dt), 3))
+```
+
+
+### 5.SVM
+
+```{python, echo=TRUE, warning = FALSE}
+svc = SVC()
+svc.fit(X_train, y_train)
+pred_svc = svc.predict(X_test)
+print(classification_report(y_test, pred_svc))
+print ("Overall Accuracy:", round(metrics.accuracy_score(y_test, pred_svc), 3))
+svc_defaut=round(metrics.accuracy_score(y_test, pred_svc), 3)
+
+```
+### 6.Plus proche voisins knn
+
+
+
+
+```{python, echo=TRUE, warning = FALSE}
+knn = KNeighborsRegressor(n_neighbors=1)
+knn.fit(X_train, y_train)
+pred_knn = svc.predict(X_test)
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+print(classification_report(y_test, pred_knn))
+print ("Overall Accuracy:", round(metrics.accuracy_score(y_test, pred_knn), 3))
+
+```
+Nous avons trouver que l'algorithme le plus précis est les forets aléatoire avec 0.64% de précision. Puis nous avons les algorithmes arbre de décision, SVM et les plus proche voisins avec 0.56% de precision pour prédire les notes.
+Nous allons selectionner et valider les hyperparametres.
+
+
+## Selection/validation des hyperparameters
+
+
+### Hyperparameters pour les Forets aléatoires
+
+```{python, echo=TRUE, warning = FALSE}
+# Designate distributions to sample hyperparameters from
+n_estimators = np.random.uniform(70, 80, 5).astype(int)
+max_features = np.random.normal(6, 3, 5).astype(int)
+
+# Check max_features>0 & max_features<=total number of features
+max_features[max_features <= 0] = 1
+max_features[max_features > X.shape[1]] = X.shape[1]
+
+hyperparameters = {'n_estimators': list(n_estimators),
+                   'max_features': list(max_features)}
+
+print (hyperparameters)
+```
+
+On va sélectionner ces hyperparametres pour l'optimisation de l'algorithme avec RandomizedSearchCV qui est plus rapide en execution que GridSearchCV.
+
+##Randomized search using cross-validation pour les Forets aléatoires
+
+```{python, echo=TRUE, warning = FALSE}
+# Run randomized search
+randomCV = RandomizedSearchCV(RandomForestClassifier(), param_distributions=hyperparameters, n_iter=20)
+randomCV.fit(X_train, y_train)
+
+# Identify optimal hyperparameter values
+best_n_estim      = randomCV.best_params_['n_estimators']
+best_max_features = randomCV.best_params_['max_features']
+
+print("The best performing n_estimators value is: {:5d}".format(best_n_estim))
+print("The best performing max_features value is: {:5d}".format(best_max_features))
+```
+On a trouvé les meilleurs hyperparametres donc on va pouvoir lancer l'apprentissage puis on va faire des tests sur les données.
+
+##Apprentissage optimal avec les nouveaux hyperparametres
+
+### L'algorithme RandomForestClassifier
+```{python, echo=TRUE, warning = FALSE}
+# Train classifier using optimal hyperparameter values
+# We could have also gotten this model out from randomCV.best_estimator_
+rfc2 = RandomForestClassifier(n_estimators=best_n_estim,
+                            max_features=best_max_features)
+
+rfc2.fit(X_train, y_train)
+rfc2_predictions = rfc2.predict(X_test)
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+print (metrics.classification_report(y_test, rfc2_predictions))
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+print ("Overall Accuracy optimal:", round(metrics.accuracy_score(y_test, rfc2_predictions), 3))
+print("Overall Accuracy par defaut :",rfc_defaut)
+```
+
+On voit qu'il y a eu une amélioration de la précison avec les nouveau hyperparametres. Cependant nous avons encore une trop grande imprécison pour noter les vins surtout à cause des vins noté 9 ou nous avons que 5 echantillions sur les 6400 vins.
+
+```{python}
+#converting the numpy array to list
+xRF=np.array(rfc2_predictions).tolist()
+
+#printing first 5 predictions
+print("\nLa prediction pour random Forest:\n")
+
+for i in range(0,5):
+  print (xRF[i])
+    
+    
+```
+
+
+```{python}
+#printing first five expectations
+print("\nLes observations pour random Forest:\n")
+print (y_test.head())
+```
+On remarque que les notes prédites ne sont pas très fiables.
+
+
+
+Maintenant, on va faire un test sur l'algorithme SVM afin de voir si on peut améliorer la précision de la prédiction.
+
+### L'algorithme SVM
+```{python, echo=TRUE, warning = FALSE}
+# Designate distributions to sample hyperparameters from
+np.random.seed(123)
+g_range = np.random.uniform(0.0, 0.3, 5).astype(float)
+C_range = np.random.normal(1, 0.1, 5).astype(float)
+
+# Check that gamma>0 and C>0
+C_range[C_range < 0] = 0.0001
+
+hyperparameters = {'gamma': list(g_range),
+                    'C': list(C_range)}
+
+print (hyperparameters)
+```
+
+##RandomizedSearchCV using cross-validation pour SVM
+
+On prendra l'algorithme SVM avec un noyau non linéaire pour cette prédiction et de type radial basis function car il est très populaire.
+
+```{python, echo=TRUE, warning = FALSE}
+# Run randomized search
+randomCV = RandomizedSearchCV(SVC(kernel='rbf', ), param_distributions=hyperparameters, n_iter=20)
+randomCV.fit(X_train, y_train)
+
+# Identify optimal hyperparameter values
+best_gamma  = randomCV.best_params_['gamma']
+best_C      = randomCV.best_params_['C']
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+print("The best performing gamma value is: {:5.2f}".format(best_gamma))
+print("The best performing C value is: {:5.2f}".format(best_C))
+
+
+```
+
+##Apprentissage optimal avec les nouveaux hyperparametres
+
+*L'algorithme SVM*
+```{python, echo=TRUE, warning = FALSE}
+# Train SVM and output predictions
+rbfSVM = SVC(kernel='rbf', C=best_C, gamma=best_gamma)
+rbfSVM.fit(X_train, y_train)
+svm_predictions = rbfSVM.predict(X_test)
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+print(metrics.classification_report(y_test, svm_predictions))
+```
+
+
+
+```{python, echo=TRUE, warning = FALSE}
+print("Overall Accuracy optimise:", round(metrics.accuracy_score(y_test, svm_predictions),1))
+print(" Overall Accuracy par defaut: ",svc_defaut)
+
+```
+
+
+
+On remarque que la précision à augmenter mais pas suffisament par rapport à l'algorithme forets aléatoires.
+
+On vérifie avec quelques notes de vins pour l'algorithme SVM
+
+```{python, echo=TRUE, warning = FALSE}
+#converting the numpy array to list
+x=np.array(svm_predictions).tolist()
+
+#printing first 5 predictions
+print("\nThe prediction SVM:\n")
+for i in range(0,5):
+    print (x[i])
+```
+
+
+```{python, echo=TRUE, warning = FALSE}
+#printing first five expectations
+print("\nThe expectation SVM:\n")
+print(y_test.head())
+```
+Pour 5 exemples, nous avons seulement 2 notes correctes Cependant avec plus d'exemples de vins notés on arrive à 57% pour l'algorithme SVM.
+
+# Conclusion
+
+
+Le meilleur algorithme pour prédire la note d'un vin pour ce jeu de données est l'algorithme Forets aléatoires. L'optimisation des hyperparametres a permis d'améliorer la precision mais pas de beaucoup.
+Ce projet a été très interéssant à réaliser car j'ai appliqué les méthodes vue en cours RCP208 et RCP209 et j'ai aussi utilisé des nouvelles bibliothèques comme Pandas. J'ai aussi utilisé R pour faire les analyse en composante principale qui est plus simple que sur python. Il serait aussi intéressant de faire une classification multi classe pour prédire la couleur du vin.
